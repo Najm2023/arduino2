@@ -1,0 +1,347 @@
+
+#include <MPU6050_tockn.h>
+#include <Wire.h>
+#include <Servo.h>
+
+Servo motor1;
+Servo motor2;
+
+#define pinM1 10
+#define pinM2 11
+
+#define maxM1 97
+#define maxM2 107
+
+#define idleM1 55
+#define idleM2 70
+
+#define minM1 48
+#define minM2 62
+
+#define valPluse 0.04
+
+#define CountFillter 3
+
+float x = 0;
+float y = 0;
+float z = 0;
+
+float x_f = 0;
+float y_f = 0;
+float z_f = 0;
+
+float x_f_Div2 = 0;
+float y_f_Div2 = 0;
+
+int counterFillter = 0;
+
+float arr_x[10]={0};
+float arr_y[10]={0};
+float arr_z[10]={0};
+
+
+
+
+String val1 = "";
+String ReadingSerial = "";
+
+int thro =0;
+int yaw =0;
+int pitch =0;
+int roll =0;
+
+float valM1 = 0;
+float valM2 = 0;
+
+float valpM1 = 0;
+float valpM2 = 0;
+
+bool isMotorsReady = false;
+bool stateM = true;
+
+long TimeReadMPU = 0;
+long TimeCheck1 = 0;
+long TimeDisplay = 0;
+
+MPU6050 mpu6050(Wire);
+const int MPU_addr = 0x68;
+
+
+
+
+void setup() {
+  Serial.begin(115200);
+
+  motor1.attach(pinM1);
+  motor2.attach(pinM2);
+
+  motor1.write(0);
+  motor2.write(0);
+
+// Wire.begin();
+// Wire.beginTransmission(MPU_addr);
+// Wire.write(0x6B);
+// Wire.write(0);
+// Wire.endTransmission(true);
+
+  Wire.begin();
+  mpu6050.begin();
+  mpu6050.calcGyroOffsets(true);
+  delay(3000);
+}
+
+void loop() {
+
+  if(millis() >= TimeReadMPU){
+    TimeReadMPU = millis()+ 50;
+    ReadMPU();
+    // readMPU2();
+  }
+
+  if(millis() >= TimeCheck1){
+    TimeCheck1 = millis()+ 100;
+    // check_Y_Angle();
+    setting1();
+
+  }
+  if(millis() >= TimeDisplay){
+    TimeDisplay = millis() + 100;
+    display();
+  }
+
+    readSerial();
+
+    isMotorsReady = M1M2Ready();
+    writeM1M2(valM1,valM2);
+}
+
+
+
+
+void ReadMPU(){
+    mpu6050.update();
+
+  x = mpu6050.getAngleX();
+  y = mpu6050.getAngleY();
+  z = mpu6050.getAngleZ();
+
+  AngleFillter(x,y,z);
+
+  x_f_Div2 = x_f / 2 ;
+  y_f_Div2 = y_f / 2 ;
+
+}
+
+void AngleFillter(float i_x,float i_y,float i_z){
+
+
+  arr_x[counterFillter] = i_x;
+  arr_y[counterFillter] = i_y;
+  arr_z[counterFillter] = i_z;
+
+  if(counterFillter >= CountFillter){
+    counterFillter =0;
+  }
+
+  x_f = 0; y_f = 0; z_f = 0;
+
+  for(int i = 0;i < CountFillter; i ++){
+    x_f += arr_x[i];
+    y_f += arr_y[i];
+    z_f += arr_z[i];
+  }
+
+  x_f = x_f / CountFillter;
+  y_f = y_f / CountFillter;
+  z_f = z_f / CountFillter;
+
+}
+
+
+void readMPU2(){
+
+Wire.beginTransmission(MPU_addr);
+Wire.write(0x3B);
+Wire.endTransmission(false);
+Wire.requestFrom(MPU_addr, 14, true);
+
+  x = (float)(Wire.read() << 8 | Wire.read())/188;
+  y = (float)(Wire.read() << 8 | Wire.read())/188;
+  z = (float)(Wire.read() << 8 | Wire.read())/188;
+
+  AngleFillter( x,y,z);
+
+  x_f_Div2 = x_f / 2 ;
+  y_f_Div2 = y_f / 2 ;
+
+}
+
+
+
+
+
+void check_Y_Angle(){
+
+    if(y_f > 1 ){
+      valpM1 += y_f * valPluse;
+      valpM2 -= y_f * valPluse;
+      val1 = "++++";
+    }else if(y_f < -1 ){
+      valpM1 -= ((-y_f) * valPluse);
+      valpM2 += ((-y_f) * valPluse);
+      val1 = "----";
+    }else{
+      val1 = "====";
+    }
+
+    // if(y_f > 1){
+    //   // valpM2 -= x_f * valPluse;
+    // }
+
+
+    // if(y_f < -1 ){
+    //   valpM1 -= ((-x_f) * valPluse);
+    //   valpM2 += ((-x_f) * valPluse);
+    // }
+    // if(y_f < -1 ){
+    //   valpM2 += ((-x_f) * valPluse);
+    // }
+
+
+    if(valpM1 > 5){
+      valpM1 = 5;
+    }
+    else if(valpM1 < 0){
+      valpM1 = 0;
+    }
+
+    if(valpM2 > 5){
+      valpM2 = 5;
+    }
+    else if(valpM2 < 0){
+      valpM2 = 0;
+    }
+
+}
+
+void check_X_Angle(){
+
+}
+
+
+
+
+void writeM1M2(float m1,float m2){
+
+
+  if(!stateM ){
+      motor1.write(minM1 - 5);
+      motor2.write(minM1 - 5);
+
+  }else{
+      if(m1 <= idleM1){
+        motor1.write(m1);
+      }
+
+      if(m2 <= idleM2){
+        motor2.write(m2);
+      }
+
+  }
+}
+
+
+bool M1M2Ready(){
+
+  if(valM1 < minM1 ){
+     valM1 ++;
+  }
+  if(valM2 < minM2 ){
+     valM2 ++;
+  }
+
+  if(valM1 < minM1 || valM2 < minM2){
+    delay(100);
+    return false;
+  }else{
+    return true;
+  }
+}
+
+
+
+
+
+
+
+void readSerial(){
+  if(Serial.available() > 0){
+    char d = Serial.read();
+    if(d == '\n'){
+      doneRead(ReadingSerial);
+      ReadingSerial = "";
+    }else{
+      ReadingSerial += d;
+    }
+  }
+}
+void display(){
+  // Serial.print(isMotorsReady);valpM1a
+  Serial.print(val1);
+  Serial.print(" P1:");
+  Serial.print(valpM1);
+  Serial.print(" P2:");
+  Serial.print(valpM2);
+
+  Serial.print(" X:");
+  Serial.print(x_f);
+  Serial.print(" Y:");
+  Serial.print(y_f);
+  Serial.print(" Z:");
+  Serial.print(z_f);
+
+  Serial.print(" Thro:");
+  Serial.print(thro);
+  Serial.print(" M1:");
+  Serial.print(valM1);
+  Serial.print("M2:");
+  Serial.println(valM2);
+}
+
+void doneRead(String d){
+     String ex_d[10];
+   int count1 =0;
+   for(int i =0 ; i < d.length(); i ++){
+      if(d[i] == ','){
+        count1 ++;
+      }else{
+        ex_d[count1] += d[i];
+      }
+   }
+
+    // thro =   ex_d[0].toInt();stateM
+    if( ex_d[0] == "start"){
+      stateM = true;
+    }
+    else{
+      stateM = false;
+    }
+    thro =   ex_d[1].toInt();
+    yaw =    ex_d[2].toInt();
+    pitch =  ex_d[3].toInt();
+    roll =   ex_d[4].toInt();
+
+    // Serial.println(ex_d[1]);
+}
+
+
+
+
+
+void setting1(){
+  if(isMotorsReady == true){
+    check_Y_Angle();
+    valM1 = minM1 + thro + valpM1;
+    valM2 = minM2 + thro + valpM2;;
+  }
+}
